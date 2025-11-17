@@ -1,3 +1,7 @@
+> ⚠️ **WARNING: RESEARCH PURPOSES ONLY** ⚠️
+> 
+> This project is intended for **research and educational purposes only**. It should **NOT be used in production environments**. The implementation may contain bugs, security vulnerabilities, or performance issues that make it unsuitable for production use. Use at your own risk.
+
 # BitFunnel - Fast Incremental Keyword Search Backend
 
 A Rust implementation of the BitFunnel algorithm for efficient, real-time keyword search in text files. This backend is designed to support incremental search as users type, making it ideal for UI applications that need fast search capabilities.
