@@ -14,12 +14,25 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::resource("/")
             .route(web::get().to(serve_index))
-    )
-    .service(
-        web::scope("/api")
-            .service(search)
-            .service(index_file)
-            .service(index_document)
+    );
+
+    let mut scope = web::scope("/api")
+        .service(search)
+        .service(index_file)
+        .service(index_document);
+
+    #[cfg(feature = "postgres")]
+    {
+        scope = scope.service(index_postgres);
+    }
+
+    #[cfg(feature = "s3")]
+    {
+        scope = scope.service(index_s3);
+    }
+
+    cfg.service(
+        scope
             .service(get_stats)
             .service(health_check)
     )
@@ -153,7 +166,7 @@ async fn index_document(
 ) -> impl Responder {
     let mut index = state.write().await;
 
-    match index.index_document(std::path::PathBuf::from(&request.path), request.content.clone()) {
+    match index.index_document(request.path.clone(), request.content.clone()) {
         Ok(doc_id) => HttpResponse::Ok().json(serde_json::json!({
             "success": true,
             "document_id": doc_id,
@@ -161,6 +174,73 @@ async fn index_document(
         })),
         Err(e) => {
             eprintln!("Error indexing document: {}", e);
+            HttpResponse::InternalServerError().finish()
+        }
+    }
+}
+
+/// Index a Postgres table
+#[cfg(feature = "postgres")]
+#[post("/index/postgres")]
+async fn index_postgres(
+    state: web::Data<AppState>,
+    request: web::Json<IndexPostgresRequest>,
+) -> impl Responder {
+    use crate::datasource::postgres::PostgresCrawler;
+    let crawler_res = PostgresCrawler::new(&request.connection_string).await;
+
+    match crawler_res {
+        Ok(crawler) => {
+            let mut index = state.write().await;
+            let text_columns: Vec<&str> = request.text_columns.iter().map(|s| s.as_str()).collect();
+
+            match crawler.crawl_table(&mut index, &request.table, &request.id_column, &text_columns).await {
+                Ok(count) => HttpResponse::Ok().json(serde_json::json!({
+                    "success": true,
+                    "indexed_count": count,
+                    "table": request.table
+                })),
+                Err(e) => {
+                    eprintln!("Error indexing postgres: {}", e);
+                    HttpResponse::InternalServerError().finish()
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("Error connecting to postgres: {}", e);
+            HttpResponse::InternalServerError().finish()
+        }
+    }
+}
+
+/// Index an S3 bucket
+#[cfg(feature = "s3")]
+#[post("/index/s3")]
+async fn index_s3(
+    state: web::Data<AppState>,
+    request: web::Json<IndexS3Request>,
+) -> impl Responder {
+    use crate::datasource::s3::S3Crawler;
+    let crawler_res = S3Crawler::new(request.region.clone()).await;
+
+    match crawler_res {
+        Ok(crawler) => {
+            let mut index = state.write().await;
+
+            match crawler.crawl_bucket(&mut index, &request.bucket, request.prefix.as_deref()).await {
+                Ok(count) => HttpResponse::Ok().json(serde_json::json!({
+                    "success": true,
+                    "indexed_count": count,
+                    "bucket": request.bucket
+                })),
+                Err(e) => {
+                    eprintln!("Error indexing S3: {}", e);
+                    HttpResponse::InternalServerError().finish()
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("Error creating S3 crawler: {}", e);
             HttpResponse::InternalServerError().finish()
         }
     }

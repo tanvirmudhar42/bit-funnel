@@ -2,19 +2,20 @@ use bitvec::prelude::*;
 #[cfg(all(feature = "rayon", not(feature = "tokio-parallel")))]
 use rayon::prelude::*;
 use std::hash::Hasher;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use twox_hash::XxHash64;
 use anyhow::{Context, Result};
 
 pub mod api;
 pub mod integrations;
+pub mod datasource;
 
 /// Represents a document in the index
 #[derive(Debug, Clone)]
 pub struct Document {
     pub id: usize,
-    pub path: PathBuf,
+    pub path: String,
     pub content: String,
     pub words: Vec<String>,
 }
@@ -53,11 +54,11 @@ impl BitFunnelIndex {
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read file: {}", path.display()))?;
         
-        self.index_document(path.to_path_buf(), content)
+        self.index_document(path.to_string_lossy().to_string(), content)
     }
 
     /// Index a document with given path and content
-    pub fn index_document(&mut self, path: PathBuf, content: String) -> Result<usize> {
+    pub fn index_document(&mut self, path: String, content: String) -> Result<usize> {
         let doc_id = self.documents.len();
         
         // Create signature for this document

@@ -15,6 +15,14 @@ path = "examples/test_substring.rs"
 name = "test_and_order"
 path = "examples/test_and_order.rs"
 
+[[example]]
+name = "index_postgres"
+path = "examples/index_postgres.rs"
+
+[[example]]
+name = "index_s3"
+path = "examples/index_s3.rs"
+
 [[bin]]
 name = "bitfunnel-cli"
 path = "src/cli.rs"
@@ -27,6 +35,8 @@ path = "src/generate_fixtures.rs"
 default = ["rayon"]
 rayon = ["dep:rayon"]
 tokio-parallel = ["tokio/rt-multi-thread", "dep:num_cpus"]
+postgres = ["dep:sqlx"]
+s3 = ["dep:aws-config", "dep:aws-sdk-s3"]
 
 [dependencies]
 bitvec = "1.0"
@@ -48,4 +58,7 @@ thiserror = "1.0"
 crossterm = "0.28"
 clap = { version = "4.5", features = ["derive"] }
 ratatui = "0.27"
+sqlx = { version = "0.7", features = ["postgres", "runtime-tokio-rustls"], optional = true }
+aws-config = { version = "1.1", optional = true }
+aws-sdk-s3 = { version = "1.17", optional = true }
 
