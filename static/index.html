@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BitFunnel Real-time Search</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f7f6;
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+        }
+        .search-container {
+            margin-bottom: 30px;
+        }
+        #search-input {
+            width: 100%;
+            padding: 12px 20px;
+            font-size: 18px;
+            border: 2px solid #ddd;
+            border-radius: 25px;
+            outline: none;
+            transition: border-color 0.3s;
+            box-sizing: border-box;
+        }
+        #search-input:focus {
+            border-color: #3498db;
+        }
+        .results-info {
+            margin-bottom: 10px;
+            font-size: 14px;
+            color: #666;
+        }
+        .result-item {
+            background: white;
+            padding: 20px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .result-path {
+            font-weight: bold;
+            color: #2980b9;
+            margin-bottom: 5px;
+            word-break: break-all;
+        }
+        .result-score {
+            font-size: 12px;
+            background: #e1f5fe;
+            color: #0288d1;
+            padding: 2px 8px;
+            border-radius: 10px;
+            float: right;
+        }
+        .result-preview {
+            font-size: 14px;
+            color: #555;
+            white-space: pre-wrap;
+        }
+        .highlight {
+            background-color: #fff59d;
+            font-weight: bold;
+        }
+        .status {
+            text-align: center;
+            font-size: 12px;
+            margin-top: 20px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <h1>BitFunnel Search</h1>
+
+    <div class="search-container">
+        <input type="text" id="search-input" placeholder="Type to search files..." autofocus>
+    </div>
+
+    <div id="results-info" class="results-info"></div>
+    <div id="results-list"></div>
+
+    <div id="status" class="status">Connecting to WebSocket...</div>
+
+    <script>
+        const searchInput = document.getElementById('search-input');
+        const resultsList = document.getElementById('results-list');
+        const resultsInfo = document.getElementById('results-info');
+        const statusDiv = document.getElementById('status');
+
+        let socket;
+        let reconnectInterval = 1000;
+
+        function connect() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/search`;
+
+            socket = new WebSocket(wsUrl);
+
+            socket.onopen = () => {
+                statusDiv.innerText = 'Connected to BitFunnel';
+                statusDiv.style.color = 'green';
+                reconnectInterval = 1000;
+
+                // If there's already text in the input, search for it
+                if (searchInput.value) {
+                    sendSearch(searchInput.value);
+                }
+            };
+
+            socket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                displayResults(data);
+            };
+
+            socket.onclose = () => {
+                statusDiv.innerText = 'Disconnected. Reconnecting...';
+                statusDiv.style.color = 'red';
+                setTimeout(connect, reconnectInterval);
+                reconnectInterval = Math.min(reconnectInterval * 2, 30000);
+            };
+
+            socket.onerror = (error) => {
+                console.error('WebSocket Error:', error);
+            };
+        }
+
+        function sendSearch(query) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({ query }));
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function displayResults(data) {
+            resultsList.innerHTML = '';
+            resultsInfo.innerText = `Found ${data.count} result(s)`;
+
+            data.results.forEach(result => {
+                const item = document.createElement('div');
+                item.className = 'result-item';
+
+                const score = document.createElement('span');
+                score.className = 'result-score';
+                score.innerText = `${result.score.toFixed(1)}%`;
+
+                const path = document.createElement('div');
+                path.className = 'result-path';
+                path.innerText = result.path;
+
+                const preview = document.createElement('div');
+                preview.className = 'result-preview';
+
+                // Escape HTML and then highlight matches in preview
+                let escapedPreview = escapeHtml(result.preview);
+                let highlightedPreview = escapedPreview;
+                const query = searchInput.value.trim();
+                if (query) {
+                    const words = query.split(/\s+/).filter(w => w.length > 2);
+                    words.forEach(word => {
+                        // Escape the word itself if it has special regex characters,
+                        // though here we mostly care about it being a simple alphanumeric string from the query.
+                        const escapedWord = escapeHtml(word);
+                        const regex = new RegExp(`(${escapedWord})`, 'gi');
+                        highlightedPreview = highlightedPreview.replace(regex, '<span class="highlight">$1</span>');
+                    });
+                }
+                preview.innerHTML = highlightedPreview;
+
+                item.appendChild(score);
+                item.appendChild(path);
+                item.appendChild(preview);
+                resultsList.appendChild(item);
+            });
+        }
+
+        searchInput.addEventListener('input', (e) => {
+            sendSearch(e.target.value);
+        });
+
+        // Initialize connection
+        connect();
+    </script>
+</body>
+</html>

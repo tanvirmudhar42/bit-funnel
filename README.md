@@ -291,17 +291,88 @@ fn main() -> anyhow::Result<()> {
 use bitfunnel::BitFunnelIndex;
 
 // Create index with custom signature size and hash count
-// Larger signature = fewer false positives but more memory
-// More hash functions = better accuracy but slower indexing
 let mut index = BitFunnelIndex::new(2048, 5); // 2048 bits, 5 hash functions
 
 // Index multiple files
 for file_path in file_paths {
     index.index_file(file_path)?;
 }
+```
 
-// Get index statistics
-println!("Indexed {} documents", index.document_count());
+## Web Integrations
+
+BitFunnel provides easy-to-use plugins for popular Rust web frameworks.
+
+### Axum Integration
+
+Add `axum` with `ws` feature to your `Cargo.toml`:
+
+```toml
+[dependencies]
+axum = { version = "0.7", features = ["ws"] }
+bitfunnel = { path = "../bitfunnel" }
+```
+
+In your `main.rs`:
+
+```rust
+use bitfunnel::api::{create_router, AppState};
+use bitfunnel::BitFunnelIndex;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+#[tokio::main]
+async fn main() {
+    let index = BitFunnelIndex::with_defaults();
+    let state: AppState = Arc::new(RwLock::new(index));
+
+    let app = create_router(state);
+
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    axum::serve(listener, app).await.unwrap();
+}
+```
+
+This provides:
+- `/` - Search UI
+- `POST /api/search` - JSON Search
+- `GET /ws/search` - WebSocket Real-time Search
+
+### Actix-web Integration
+
+Add `actix-web` and `actix-ws` to your `Cargo.toml`:
+
+```toml
+[dependencies]
+actix-web = "4"
+actix-ws = "0.2"
+bitfunnel = { path = "../bitfunnel" }
+```
+
+In your `main.rs`:
+
+```rust
+use actix_web::{web, App, HttpServer};
+use bitfunnel::integrations::actix::{configure, AppState};
+use bitfunnel::BitFunnelIndex;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
+    let index = BitFunnelIndex::with_defaults();
+    let state: AppState = Arc::new(RwLock::new(index));
+    let data = web::Data::new(state);
+
+    HttpServer::new(move || {
+        App::new()
+            .app_data(data.clone())
+            .configure(configure) // Register BitFunnel routes
+    })
+    .bind(("0.0.0.0", 3000))?
+    .run()
+    .await
+}
 ```
 
 ### Examples
