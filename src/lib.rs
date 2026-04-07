@@ -8,6 +8,7 @@ use twox_hash::XxHash64;
 use anyhow::{Context, Result};
 
 pub mod api;
+pub mod integrations;
 
 /// Represents a document in the index
 #[derive(Debug, Clone)]
