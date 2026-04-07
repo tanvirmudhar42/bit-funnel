@@ -11,17 +11,17 @@ fn main() -> anyhow::Result<()> {
 
     // Index some example documents
     println!("Indexing documents...");
-    
+
     index.index_document(
         "doc1.txt".into(),
         "Rust is a systems programming language that runs blazingly fast.".to_string(),
     )?;
-    
+
     index.index_document(
         "doc2.txt".into(),
         "Python is a high-level programming language known for its simplicity.".to_string(),
     )?;
-    
+
     index.index_document(
         "doc3.txt".into(),
         "JavaScript is the language of the web, used for both frontend and backend.".to_string(),
@@ -35,7 +35,7 @@ fn main() -> anyhow::Result<()> {
     loop {
         print!("Query: ");
         io::Write::flush(&mut io::stdout())?;
-        
+
         let mut query = String::new();
         io::stdin().read_line(&mut query)?;
         let query = query.trim();
@@ -72,4 +72,3 @@ fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-

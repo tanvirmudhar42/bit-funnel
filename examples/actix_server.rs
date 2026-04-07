@@ -1,9 +1,9 @@
 use actix_web::{web, App, HttpServer};
 use bitfunnel::integrations::actix::{configure, AppState};
 use bitfunnel::BitFunnelIndex;
+use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use std::path::Path;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -20,7 +20,9 @@ async fn main() -> std::io::Result<()> {
             if entry.path().is_file() {
                 index.index_file(entry.path()).unwrap();
                 count += 1;
-                if count >= 100 { break; } // Index first 100 for speed
+                if count >= 100 {
+                    break;
+                } // Index first 100 for speed
             }
         }
         println!("Indexed {} files.", count);
@@ -37,12 +39,8 @@ async fn main() -> std::io::Result<()> {
     println!("Actix BitFunnel server running on http://localhost:3002");
     println!("Open this URL in your browser to use the search UI.");
 
-    HttpServer::new(move || {
-        App::new()
-            .app_data(data.clone())
-            .configure(configure)
-    })
-    .bind(("0.0.0.0", 3002))?
-    .run()
-    .await
+    HttpServer::new(move || App::new().app_data(data.clone()).configure(configure))
+        .bind(("0.0.0.0", 3002))?
+        .run()
+        .await
 }

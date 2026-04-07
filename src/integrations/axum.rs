@@ -12,8 +12,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_http::services::ServeDir;
 
-use crate::BitFunnelIndex;
 pub use crate::integrations::common::*;
+use crate::BitFunnelIndex;
 
 /// Shared state for the API server
 pub type AppState = Arc<RwLock<BitFunnelIndex>>;
@@ -77,10 +77,7 @@ async fn search(
 }
 
 /// WebSocket handler for real-time search
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
     ws.on_upgrade(|socket| handle_socket(socket, state))
 }
 

@@ -11,8 +11,7 @@ async fn main() -> anyhow::Result<()> {
     let state: AppState = Arc::new(RwLock::new(index));
 
     // Create the router with CORS enabled for UI integration
-    let app = create_router(state)
-        .layer(CorsLayer::permissive()); // Allow all origins for development
+    let app = create_router(state).layer(CorsLayer::permissive()); // Allow all origins for development
 
     // Start the server
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
@@ -28,4 +27,3 @@ async fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-

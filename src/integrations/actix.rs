@@ -1,29 +1,26 @@
-use actix_web::{get, post, web, HttpResponse, Responder, Error};
+use actix_web::{get, post, web, Error, HttpResponse, Responder};
 use actix_ws::Message;
+use futures::StreamExt;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use futures::StreamExt;
 
-use crate::BitFunnelIndex;
 use crate::integrations::common::*;
+use crate::BitFunnelIndex;
 
 /// Shared state for the API server
 pub type AppState = Arc<RwLock<BitFunnelIndex>>;
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::resource("/")
-            .route(web::get().to(serve_index))
-    )
-    .service(
-        web::scope("/api")
-            .service(search)
-            .service(index_file)
-            .service(index_document)
-            .service(get_stats)
-            .service(health_check)
-    )
-    .service(web::resource("/ws/search").route(web::get().to(ws_handler)));
+    cfg.service(web::resource("/").route(web::get().to(serve_index)))
+        .service(
+            web::scope("/api")
+                .service(search)
+                .service(index_file)
+                .service(index_document)
+                .service(get_stats)
+                .service(health_check),
+        )
+        .service(web::resource("/ws/search").route(web::get().to(ws_handler)));
 }
 
 /// Serve the search UI
@@ -54,10 +51,7 @@ async fn get_stats(state: web::Data<AppState>) -> impl Responder {
 
 /// Search endpoint
 #[post("/search")]
-async fn search(
-    state: web::Data<AppState>,
-    request: web::Json<SearchRequest>,
-) -> impl Responder {
+async fn search(state: web::Data<AppState>, request: web::Json<SearchRequest>) -> impl Responder {
     let index_lock = Arc::clone(&state);
 
     let results = tokio::task::spawn_blocking(move || {
@@ -68,7 +62,8 @@ async fn search(
 
     match results {
         Ok(results) => {
-            let result_dtos: Vec<SearchResultDto> = results.iter().map(SearchResultDto::from).collect();
+            let result_dtos: Vec<SearchResultDto> =
+                results.iter().map(SearchResultDto::from).collect();
             HttpResponse::Ok().json(SearchResponse {
                 count: result_dtos.len(),
                 results: result_dtos,
@@ -153,7 +148,10 @@ async fn index_document(
 ) -> impl Responder {
     let mut index = state.write().await;
 
-    match index.index_document(std::path::PathBuf::from(&request.path), request.content.clone()) {
+    match index.index_document(
+        std::path::PathBuf::from(&request.path),
+        request.content.clone(),
+    ) {
         Ok(doc_id) => HttpResponse::Ok().json(serde_json::json!({
             "success": true,
             "document_id": doc_id,
