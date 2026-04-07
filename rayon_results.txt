@@ -1,0 +1,30 @@
+   Compiling bitfunnel v0.1.0 (/app)
+    Finished `release` profile [optimized] target(s) in 4.05s
+     Running `target/release/examples/benchmark_rayon`
+--- Rayon Implementation ---
+Indexing documents from fixtures/files...
+Indexed 501 documents in 11.688636296s
+
+Benchmarking searches...
+Search for 'rust' found 500 results in 2.269383ms
+Search for 'programming' found 500 results in 585.457µs
+Search for 'performance' found 500 results in 562.41µs
+Search for 'search engine' found 93 results in 1.523004ms
+Search for 'bitfunnel algorithm' found 0 results in 191.418µs
+Search for 'distributed systems' found 0 results in 198.481µs
+Search for 'memory safety' found 0 results in 153.37µs
+Search for 'concurrency model' found 0 results in 137.108µs
+Search for 'zero cost abstractions' found 0 results in 140.725µs
+Search for 'package manager' found 0 results in 145.112µs
+
+Timed searches (average of 100 runs):
+Search for 'rust': 943.124µs
+Search for 'programming': 406.537µs
+Search for 'performance': 413.562µs
+Search for 'search engine': 1.241281ms
+Search for 'bitfunnel algorithm': 67.093µs
+Search for 'distributed systems': 62.126µs
+Search for 'memory safety': 39.328µs
+Search for 'concurrency model': 50.976µs
+Search for 'zero cost abstractions': 53.611µs
+Search for 'package manager': 46.314µs

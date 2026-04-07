@@ -1,4 +1,5 @@
 use bitvec::prelude::*;
+#[cfg(all(feature = "rayon", not(feature = "tokio-parallel")))]
 use rayon::prelude::*;
 use std::hash::Hasher;
 use std::path::{Path, PathBuf};
@@ -108,41 +109,121 @@ impl BitFunnelIndex {
             }
         }
 
-        // Find matching documents in parallel
-        let query_raw = query_signature.as_raw_slice();
-
-        let mut results: Vec<SearchResult> = self.signatures.par_iter().enumerate()
-            .filter_map(|(doc_id, doc_signature)| {
-                // First check: document signature must contain all query bits (fast filter)
-                let doc_raw = doc_signature.as_raw_slice();
-                let mut matches_bits = true;
-                for (q, d) in query_raw.iter().zip(doc_raw.iter()) {
-                    if (q & d) != *q {
-                        matches_bits = false;
-                        break;
-                    }
-                }
-
-                if matches_bits {
-                    let doc = &self.documents[doc_id];
-                    // Second check: all query words must be present AND in order
-                    if self.matches_query_words_in_order(doc, &query_words) {
-                        // Calculate relevance score
-                        let score = self.calculate_relevance(&query_signature, doc_signature, &query_words, doc);
-                        return Some(SearchResult {
-                            document_id: doc_id,
-                            score,
-                            document: Arc::clone(doc),
-                        });
-                    }
-                }
-                None
-            })
-            .collect();
+        let mut results = self.perform_search_parallel(&query_signature, &query_words);
 
         // Sort by relevance score (higher is better)
         results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
         results
+    }
+
+    #[cfg(all(feature = "rayon", not(feature = "tokio-parallel")))]
+    fn perform_search_parallel(
+        &self,
+        query_signature: &BitVec<u64, Lsb0>,
+        query_words: &[String],
+    ) -> Vec<SearchResult> {
+        let query_raw = query_signature.as_raw_slice();
+        self.signatures.par_iter().enumerate()
+            .filter_map(|(doc_id, doc_signature)| {
+                self.match_document(doc_id, doc_signature, query_signature, query_raw, query_words)
+            })
+            .collect()
+    }
+
+    #[cfg(feature = "tokio-parallel")]
+    fn perform_search_parallel(
+        &self,
+        query_signature: &BitVec<u64, Lsb0>,
+        query_words: &[String],
+    ) -> Vec<SearchResult> {
+        use std::sync::Mutex;
+        let results = Arc::new(Mutex::new(Vec::new()));
+
+        let n_threads = num_cpus::get().max(1);
+        let chunk_size = (self.signatures.len() + n_threads - 1) / n_threads;
+
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(n_threads)
+            .enable_all()
+            .build()
+            .expect("Failed to build runtime");
+
+        rt.block_on(async {
+            let mut set = tokio::task::JoinSet::new();
+
+            // Extend lifetime of self to 'static for tokio::spawn
+            // SAFETY: We block on the JoinSet, so self will not be dropped while tasks are running.
+            let self_static: &'static Self = unsafe { std::mem::transmute(self) };
+
+            for (chunk_idx, chunk_sigs) in self.signatures.chunks(chunk_size).enumerate() {
+                let results = Arc::clone(&results);
+                let query_signature = query_signature.clone();
+                let query_words = query_words.to_vec();
+                let start_idx = chunk_idx * chunk_size;
+                let chunk_sigs_static: &'static [BitVec<u64, Lsb0>] = unsafe { std::mem::transmute(chunk_sigs) };
+
+                set.spawn(async move {
+                    let mut local_results = Vec::new();
+                    let query_raw = query_signature.as_raw_slice();
+                    for (i, doc_signature) in chunk_sigs_static.iter().enumerate() {
+                        if let Some(res) = self_static.match_document(start_idx + i, doc_signature, &query_signature, query_raw, &query_words) {
+                            local_results.push(res);
+                        }
+                    }
+                    let mut r = results.lock().unwrap();
+                    r.extend(local_results);
+                });
+            }
+
+            while let Some(_) = set.join_next().await {}
+        });
+
+        let mut final_results = results.lock().unwrap();
+        std::mem::take(&mut *final_results)
+    }
+
+    #[cfg(not(any(feature = "rayon", feature = "tokio-parallel")))]
+    fn perform_search_parallel(
+        &self,
+        query_signature: &BitVec<u64, Lsb0>,
+        query_words: &[String],
+    ) -> Vec<SearchResult> {
+        let query_raw = query_signature.as_raw_slice();
+        self.signatures.iter().enumerate()
+            .filter_map(|(doc_id, doc_signature)| {
+                self.match_document(doc_id, doc_signature, query_signature, query_raw, query_words)
+            })
+            .collect()
+    }
+
+    fn match_document(
+        &self,
+        doc_id: usize,
+        doc_signature: &BitVec<u64, Lsb0>,
+        query_signature: &BitVec<u64, Lsb0>,
+        query_raw: &[u64],
+        query_words: &[String],
+    ) -> Option<SearchResult> {
+        // First check: document signature must contain all query bits (fast filter)
+        let doc_raw = doc_signature.as_raw_slice();
+        for (q, d) in query_raw.iter().zip(doc_raw.iter()) {
+            if (q & d) != *q {
+                return None;
+            }
+        }
+
+        let doc = &self.documents[doc_id];
+        // Second check: all query words must be present AND in order
+        if self.matches_query_words_in_order(doc, query_words) {
+            // Calculate relevance score
+            let score = self.calculate_relevance(query_signature, doc_signature, query_words, doc);
+            return Some(SearchResult {
+                document_id: doc_id,
+                score,
+                document: Arc::clone(doc),
+            });
+        }
+        None
     }
 
     /// Extract whole words from query (for order checking)
