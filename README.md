@@ -81,6 +81,12 @@ cargo run --release --bin bitfunnel-cli -- --path /path/to/files --recursive
 
 # Only search specific file types
 cargo run --release --bin bitfunnel-cli -- --path . --extensions txt,md,rs
+
+# Load an existing index instead of re-indexing
+cargo run --release --bin bitfunnel-cli -- --load my_index.json
+
+# Save the index after scanning files
+cargo run --release --bin bitfunnel-cli -- --path . --save my_index.json
 ```
 
 #### Command Line Options
@@ -88,6 +94,8 @@ cargo run --release --bin bitfunnel-cli -- --path . --extensions txt,md,rs
 - `-p, --path <PATH>`: Directory or file to index (default: current directory)
 - `-r, --recursive`: Recursively index subdirectories
 - `-e, --extensions <EXTENSIONS>`: Comma-separated list of file extensions to include (e.g., `txt,rs,md`)
+- `--save <FILE>`: Save the index to a file after indexing
+- `--load <FILE>`: Load the index from a file instead of indexing
 - `-h, --help`: Show help message
 
 #### CLI Controls
@@ -146,6 +154,10 @@ The server provides the following REST endpoints:
 - `POST /api/search` - Search for documents
 - `POST /api/index/file` - Index a file from filesystem
 - `POST /api/index/document` - Index document content directly
+- `POST /api/index/postgres` - Index a Postgres table
+- `POST /api/index/s3` - Index an S3 bucket
+- `POST /api/index/save` - Save index to disk
+- `POST /api/index/load` - Load index from disk
 - `GET /api/stats` - Get index statistics
 - `GET /api/health` - Health check
 
@@ -191,6 +203,45 @@ curl -X POST http://localhost:3000/api/index/document \
     "path": "document.txt",
     "content": "This is the document content..."
   }'
+```
+
+#### Index a Postgres Table
+
+```bash
+curl -X POST http://localhost:3000/api/index/postgres \
+  -H "Content-Type: application/json" \
+  -d '{
+    "connection_string": "postgres://user:pass@localhost/db",
+    "table": "articles",
+    "id_column": "id",
+    "text_columns": ["title", "content"]
+  }'
+```
+
+#### Index an S3 Bucket
+
+```bash
+curl -X POST http://localhost:3000/api/index/s3 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "bucket": "my-text-data-bucket",
+    "region": "us-east-1",
+    "prefix": "optional/folder/"
+  }'
+```
+
+#### Persistence (Save/Load Index)
+
+```bash
+# Save index
+curl -X POST http://localhost:3000/api/index/save \
+  -H "Content-Type: application/json" \
+  -d '{"path": "my_index.json"}'
+
+# Load index
+curl -X POST http://localhost:3000/api/index/load \
+  -H "Content-Type: application/json" \
+  -d '{"path": "my_index.json"}'
 ```
 
 #### Get Statistics

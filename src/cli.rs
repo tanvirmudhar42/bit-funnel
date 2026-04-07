@@ -28,6 +28,14 @@ struct Args {
     /// File extensions to include (e.g., txt,rs,md)
     #[arg(short, long, value_delimiter = ',')]
     extensions: Option<Vec<String>>,
+
+    /// Save the index to a file after indexing
+    #[arg(long)]
+    save: Option<String>,
+
+    /// Load the index from a file instead of indexing
+    #[arg(long)]
+    load: Option<String>,
 }
 
 struct App {
@@ -101,31 +109,43 @@ fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     // Initialize index
-    let mut index = BitFunnelIndex::with_defaults();
+    let mut index = if let Some(load_path) = args.load {
+        println!("Loading index from {}...", load_path);
+        BitFunnelIndex::load_from_file(load_path)?
+    } else {
+        let mut index = BitFunnelIndex::with_defaults();
 
-    println!("Indexing files...");
-    let files = collect_files(&args.path, args.recursive, &args.extensions)?;
-    
-    let mut indexed_count = 0;
-    let mut error_count = 0;
-    
-    for file in &files {
-        match index.index_file(file) {
-            Ok(_) => {
-                indexed_count += 1;
-                if indexed_count % 10 == 0 {
-                    print!("\rIndexed {} files...", indexed_count);
-                    io::stdout().flush()?;
+        println!("Indexing files...");
+        let files = collect_files(&args.path, args.recursive, &args.extensions)?;
+
+        let mut indexed_count = 0;
+        let mut error_count = 0;
+
+        for file in &files {
+            match index.index_file(file) {
+                Ok(_) => {
+                    indexed_count += 1;
+                    if indexed_count % 10 == 0 {
+                        print!("\rIndexed {} files...", indexed_count);
+                        io::stdout().flush()?;
+                    }
+                }
+                Err(e) => {
+                    error_count += 1;
+                    eprintln!("\nWarning: Failed to index {}: {}", file.to_string_lossy(), e);
                 }
             }
-            Err(e) => {
-                error_count += 1;
-                eprintln!("\nWarning: Failed to index {}: {}", file.display(), e);
-            }
         }
+
+        println!("\rIndexed {} files ({} errors)", indexed_count, error_count);
+        index
+    };
+
+    if let Some(save_path) = args.save {
+        println!("Saving index to {}...", save_path);
+        index.save_to_file(save_path)?;
     }
     
-    println!("\rIndexed {} files ({} errors)", indexed_count, error_count);
     println!("\nStarting interactive search...\n");
 
     // Run interactive search
@@ -343,7 +363,7 @@ fn render_main(f: &mut Frame, app: &mut App) {
                 let absolute_idx = app.scroll + display_idx;
                 let is_selected = absolute_idx == app.selected;
                 
-                let path_str = result.document.path.display().to_string();
+                let path_str = result.document.path.clone();
                 let preview = get_preview(&result.document.content, &app.query, 50);
                 
                 let style = if is_selected {
@@ -424,7 +444,7 @@ fn render_file_details(f: &mut Frame, result: &Option<bitfunnel::SearchResult>) 
         // Header
         let header_text = Line::from(vec![
             Span::styled(" File: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::raw(result.document.path.display().to_string()),
+            Span::raw(result.document.path.clone()),
             Span::styled(
                 format!(" | Score: {:.1}%", result.score),
                 Style::default().fg(Color::Green),

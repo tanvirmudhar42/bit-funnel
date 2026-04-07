@@ -20,11 +20,25 @@ pub type AppState = Arc<RwLock<BitFunnelIndex>>;
 
 /// Create the API router
 pub fn create_router(state: AppState) -> Router {
-    Router::new()
+    let mut router = Router::new()
         .route("/", get(serve_index))
         .route("/api/search", post(search))
         .route("/api/index/file", post(index_file))
-        .route("/api/index/document", post(index_document))
+        .route("/api/index/document", post(index_document));
+
+    #[cfg(feature = "postgres")]
+    {
+        router = router.route("/api/index/postgres", post(index_postgres));
+    }
+
+    #[cfg(feature = "s3")]
+    {
+        router = router.route("/api/index/s3", post(index_s3));
+    }
+
+    router
+        .route("/api/index/save", post(save_index_to_file))
+        .route("/api/index/load", post(load_index_from_file))
         .route("/api/stats", get(get_stats))
         .route("/api/health", get(health_check))
         .route("/ws/search", get(ws_handler))
@@ -121,6 +135,47 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
     }
 }
 
+/// Save the index to a file
+async fn save_index_to_file(
+    State(state): State<AppState>,
+    Json(request): Json<PersistenceRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let index = state.read().await;
+
+    match index.save_to_file(&request.path) {
+        Ok(_) => Ok(Json(serde_json::json!({
+            "success": true,
+            "path": request.path
+        }))),
+        Err(e) => {
+            eprintln!("Error saving index: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+/// Load the index from a file
+async fn load_index_from_file(
+    State(state): State<AppState>,
+    Json(request): Json<PersistenceRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    match BitFunnelIndex::load_from_file(&request.path) {
+        Ok(new_index) => {
+            let mut index = state.write().await;
+            *index = new_index;
+            Ok(Json(serde_json::json!({
+                "success": true,
+                "document_count": index.document_count(),
+                "path": request.path
+            })))
+        }
+        Err(e) => {
+            eprintln!("Error loading index: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
 /// Index a file from the filesystem
 async fn index_file(
     State(state): State<AppState>,
@@ -148,7 +203,7 @@ async fn index_document(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let mut index = state.write().await;
 
-    match index.index_document(std::path::PathBuf::from(&request.path), request.content) {
+    match index.index_document(request.path.clone(), request.content) {
         Ok(doc_id) => Ok(Json(serde_json::json!({
             "success": true,
             "document_id": doc_id,
@@ -156,6 +211,59 @@ async fn index_document(
         }))),
         Err(e) => {
             eprintln!("Error indexing document: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+/// Index a Postgres table
+#[cfg(feature = "postgres")]
+async fn index_postgres(
+    State(state): State<AppState>,
+    Json(request): Json<IndexPostgresRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    use crate::datasource::postgres::PostgresCrawler;
+    let crawler = PostgresCrawler::new(&request.connection_string)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mut index = state.write().await;
+    let text_columns: Vec<&str> = request.text_columns.iter().map(|s| s.as_str()).collect();
+
+    match crawler.crawl_table(&mut index, &request.table, &request.id_column, &text_columns).await {
+        Ok(count) => Ok(Json(serde_json::json!({
+            "success": true,
+            "indexed_count": count,
+            "table": request.table
+        }))),
+        Err(e) => {
+            eprintln!("Error indexing postgres: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+/// Index an S3 bucket
+#[cfg(feature = "s3")]
+async fn index_s3(
+    State(state): State<AppState>,
+    Json(request): Json<IndexS3Request>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    use crate::datasource::s3::S3Crawler;
+    let crawler = S3Crawler::new(request.region)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mut index = state.write().await;
+
+    match crawler.crawl_bucket(&mut index, &request.bucket, request.prefix.as_deref()).await {
+        Ok(count) => Ok(Json(serde_json::json!({
+            "success": true,
+            "indexed_count": count,
+            "bucket": request.bucket
+        }))),
+        Err(e) => {
+            eprintln!("Error indexing S3: {}", e);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
