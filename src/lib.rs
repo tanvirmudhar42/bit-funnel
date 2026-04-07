@@ -153,7 +153,7 @@ impl BitFunnelIndex {
         let results = Arc::new(Mutex::new(Vec::new()));
 
         let n_threads = num_cpus::get().max(1);
-        let chunk_size = (self.signatures.len() + n_threads - 1) / n_threads;
+        let chunk_size = self.signatures.len().div_ceil(n_threads);
 
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(n_threads)
@@ -195,7 +195,7 @@ impl BitFunnelIndex {
                 });
             }
 
-            while let Some(_) = set.join_next().await {}
+            while set.join_next().await.is_some() {}
         });
 
         let mut final_results = results.lock().unwrap();
