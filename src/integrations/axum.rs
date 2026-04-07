@@ -102,7 +102,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                 results: result_dtos,
                             };
                             if let Ok(json) = serde_json::to_string(&response) {
-                                if socket.send(Message::Text(json)).await.is_err() {
+                                if socket.send(Message::Text(json.into())).await.is_err() {
                                     break;
                                 }
                             }

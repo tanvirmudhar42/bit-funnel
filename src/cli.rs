@@ -286,7 +286,7 @@ fn interactive_search(index: &BitFunnelIndex) -> anyhow::Result<()> {
 }
 
 fn render_main(f: &mut Frame, app: &mut App) {
-    let size = f.size();
+    let size = f.area();
 
     // Create layout: header, search bar, results, footer
     let chunks = Layout::default()
@@ -425,7 +425,7 @@ fn render_main(f: &mut Frame, app: &mut App) {
 }
 
 fn render_file_details(f: &mut Frame, result: &Option<bitfunnel::SearchResult>) {
-    let size = f.size();
+    let size = f.area();
 
     if let Some(result) = result {
         let chunks = Layout::default()

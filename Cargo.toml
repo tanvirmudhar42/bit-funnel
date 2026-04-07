@@ -32,20 +32,20 @@ tokio-parallel = ["tokio/rt-multi-thread", "dep:num_cpus"]
 bitvec = "1.0"
 rayon = { version = "1.10", optional = true }
 num_cpus = { version = "1.0", optional = true }
-twox-hash = "1.6"
-axum = { version = "0.7", features = ["ws"] }
+twox-hash = "2.1"
+axum = { version = "0.8", features = ["ws"] }
 actix-web = "4"
-actix-ws = "0.2"
+actix-ws = "0.4"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
 futures = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tower = "0.4"
-tower-http = { version = "0.5", features = ["cors", "fs"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "fs"] }
 anyhow = "1.0"
-thiserror = "1.0"
-crossterm = "0.28"
+thiserror = "2.0"
+crossterm = "0.29"
 clap = { version = "4.5", features = ["derive"] }
-ratatui = "0.27"
+ratatui = "0.30"
 
