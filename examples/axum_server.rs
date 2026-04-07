@@ -1,9 +1,9 @@
 use bitfunnel::api::{create_router, AppState};
 use bitfunnel::BitFunnelIndex;
+use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
-use std::path::Path;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -20,7 +20,9 @@ async fn main() -> anyhow::Result<()> {
             if entry.path().is_file() {
                 index.index_file(entry.path())?;
                 count += 1;
-                if count >= 100 { break; } // Index first 100 for speed
+                if count >= 100 {
+                    break;
+                } // Index first 100 for speed
             }
         }
         println!("Indexed {} files.", count);
@@ -34,8 +36,7 @@ async fn main() -> anyhow::Result<()> {
     let state: AppState = Arc::new(RwLock::new(index));
 
     // Create the router with CORS enabled for UI integration
-    let app = create_router(state)
-        .layer(CorsLayer::permissive());
+    let app = create_router(state).layer(CorsLayer::permissive());
 
     // Start the server
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await?;

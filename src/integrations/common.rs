@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::SearchResult;
+use serde::{Deserialize, Serialize};
 
 /// Request to index a file
 #[derive(Deserialize)]

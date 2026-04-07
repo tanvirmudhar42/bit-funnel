@@ -1,6 +1,6 @@
 use bitfunnel::BitFunnelIndex;
-use std::time::Instant;
 use std::path::Path;
+use std::time::Instant;
 
 fn main() -> anyhow::Result<()> {
     let mut index = BitFunnelIndex::with_defaults();
@@ -43,7 +43,12 @@ fn main() -> anyhow::Result<()> {
         let start = Instant::now();
         let results = index.search(query);
         let duration = start.elapsed();
-        println!("Search for '{}' found {} results in {:?}", query, results.len(), duration);
+        println!(
+            "Search for '{}' found {} results in {:?}",
+            query,
+            results.len(),
+            duration
+        );
     }
 
     // Warm up

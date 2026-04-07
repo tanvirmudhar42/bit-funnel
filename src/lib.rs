@@ -1,3 +1,4 @@
+use anyhow::{Context, Result};
 use bitvec::prelude::*;
 #[cfg(all(feature = "rayon", not(feature = "tokio-parallel")))]
 use rayon::prelude::*;
@@ -5,7 +6,6 @@ use std::hash::Hasher;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use twox_hash::XxHash64;
-use anyhow::{Context, Result};
 
 pub mod api;
 pub mod integrations;
@@ -52,17 +52,17 @@ impl BitFunnelIndex {
         let path = path.as_ref();
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read file: {}", path.display()))?;
-        
+
         self.index_document(path.to_path_buf(), content)
     }
 
     /// Index a document with given path and content
     pub fn index_document(&mut self, path: PathBuf, content: String) -> Result<usize> {
         let doc_id = self.documents.len();
-        
+
         // Create signature for this document
         let mut signature = bitvec![u64, Lsb0; 0; self.signature_size];
-        
+
         // Extract terms and set bits in signature
         let (words, terms) = Self::extract_terms_and_words(&content);
         for term in &terms {
@@ -73,7 +73,7 @@ impl BitFunnelIndex {
                 }
             }
         }
-        
+
         self.documents.push(Arc::new(Document {
             id: doc_id,
             path,
@@ -81,7 +81,7 @@ impl BitFunnelIndex {
             words,
         }));
         self.signatures.push(signature);
-        
+
         Ok(doc_id)
     }
 
@@ -113,7 +113,11 @@ impl BitFunnelIndex {
         let mut results = self.perform_search_parallel(&query_signature, &query_words);
 
         // Sort by relevance score (higher is better)
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results
     }
 
@@ -124,9 +128,17 @@ impl BitFunnelIndex {
         query_words: &[String],
     ) -> Vec<SearchResult> {
         let query_raw = query_signature.as_raw_slice();
-        self.signatures.par_iter().enumerate()
+        self.signatures
+            .par_iter()
+            .enumerate()
             .filter_map(|(doc_id, doc_signature)| {
-                self.match_document(doc_id, doc_signature, query_signature, query_raw, query_words)
+                self.match_document(
+                    doc_id,
+                    doc_signature,
+                    query_signature,
+                    query_raw,
+                    query_words,
+                )
             })
             .collect()
     }
@@ -161,13 +173,20 @@ impl BitFunnelIndex {
                 let query_signature = query_signature.clone();
                 let query_words = query_words.to_vec();
                 let start_idx = chunk_idx * chunk_size;
-                let chunk_sigs_static: &'static [BitVec<u64, Lsb0>] = unsafe { std::mem::transmute(chunk_sigs) };
+                let chunk_sigs_static: &'static [BitVec<u64, Lsb0>] =
+                    unsafe { std::mem::transmute(chunk_sigs) };
 
                 set.spawn(async move {
                     let mut local_results = Vec::new();
                     let query_raw = query_signature.as_raw_slice();
                     for (i, doc_signature) in chunk_sigs_static.iter().enumerate() {
-                        if let Some(res) = self_static.match_document(start_idx + i, doc_signature, &query_signature, query_raw, &query_words) {
+                        if let Some(res) = self_static.match_document(
+                            start_idx + i,
+                            doc_signature,
+                            &query_signature,
+                            query_raw,
+                            &query_words,
+                        ) {
                             local_results.push(res);
                         }
                     }
@@ -190,9 +209,17 @@ impl BitFunnelIndex {
         query_words: &[String],
     ) -> Vec<SearchResult> {
         let query_raw = query_signature.as_raw_slice();
-        self.signatures.iter().enumerate()
+        self.signatures
+            .iter()
+            .enumerate()
             .filter_map(|(doc_id, doc_signature)| {
-                self.match_document(doc_id, doc_signature, query_signature, query_raw, query_words)
+                self.match_document(
+                    doc_id,
+                    doc_signature,
+                    query_signature,
+                    query_raw,
+                    query_words,
+                )
             })
             .collect()
     }
@@ -229,7 +256,8 @@ impl BitFunnelIndex {
 
     /// Extract whole words from query (for order checking)
     fn extract_query_words(query: &str) -> Vec<String> {
-        query.to_lowercase()
+        query
+            .to_lowercase()
             .split_whitespace()
             .map(|s| s.trim_matches(|c: char| !c.is_alphanumeric()))
             .filter(|s| !s.is_empty() && s.len() > 1)
@@ -314,7 +342,7 @@ impl BitFunnelIndex {
     /// Get bit positions for a term using multiple hash functions
     fn get_term_bit_positions(&self, term: &str) -> Vec<usize> {
         let mut positions = Vec::new();
-        
+
         // Generate multiple hash values for this term using different seeds
         for i in 0..self.hash_count {
             let mut hasher = XxHash64::with_seed(i as u64);
@@ -330,7 +358,7 @@ impl BitFunnelIndex {
     /// Extract terms and words from text
     fn extract_terms_and_words(text: &str) -> (Vec<String>, Vec<String>) {
         let text_lower = text.to_lowercase();
-        
+
         // Extract whole words
         let words: Vec<String> = text_lower
             .split_whitespace()
@@ -338,16 +366,16 @@ impl BitFunnelIndex {
             .filter(|s| !s.is_empty() && s.len() > 1)
             .map(|s| s.to_string())
             .collect();
-        
+
         let mut terms = Vec::with_capacity(words.len() * 5);
 
         // Add whole words
         terms.extend(words.clone());
-        
+
         // Generate n-grams (substrings) from words for substring matching
         const MIN_NGRAM_LEN: usize = 3;
         const MAX_NGRAM_LEN: usize = 8;
-        
+
         for word in &words {
             let chars: Vec<char> = word.chars().collect();
             let len = chars.len();
@@ -361,7 +389,7 @@ impl BitFunnelIndex {
                 }
             }
         }
-        
+
         (words, terms)
     }
 
@@ -389,4 +417,3 @@ pub struct SearchResult {
     pub score: f64,
     pub document: Arc<Document>,
 }
-

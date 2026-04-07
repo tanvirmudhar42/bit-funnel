@@ -15,7 +15,9 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(name = "bitfunnel-cli")]
 #[command(about = "Interactive BitFunnel search CLI - search files as you type")]
-#[command(long_about = "An interactive terminal-based search tool that updates results in real-time as you type. Perfect for quickly finding files containing specific keywords.")]
+#[command(
+    long_about = "An interactive terminal-based search tool that updates results in real-time as you type. Perfect for quickly finding files containing specific keywords."
+)]
 struct Args {
     /// Directory or files to index
     #[arg(short, long, default_value = ".")]
@@ -105,10 +107,10 @@ fn main() -> anyhow::Result<()> {
 
     println!("Indexing files...");
     let files = collect_files(&args.path, args.recursive, &args.extensions)?;
-    
+
     let mut indexed_count = 0;
     let mut error_count = 0;
-    
+
     for file in &files {
         match index.index_file(file) {
             Ok(_) => {
@@ -124,7 +126,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
     }
-    
+
     println!("\rIndexed {} files ({} errors)", indexed_count, error_count);
     println!("\nStarting interactive search...\n");
 
@@ -200,8 +202,12 @@ fn interactive_search(index: &BitFunnelIndex) -> anyhow::Result<()> {
     // Setup terminal
     crossterm::terminal::enable_raw_mode()?;
     let mut stdout = stdout();
-    crossterm::execute!(stdout, crossterm::terminal::EnterAlternateScreen, EnableMouseCapture)?;
-    
+    crossterm::execute!(
+        stdout,
+        crossterm::terminal::EnterAlternateScreen,
+        EnableMouseCapture
+    )?;
+
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -210,7 +216,7 @@ fn interactive_search(index: &BitFunnelIndex) -> anyhow::Result<()> {
     let mut details_result: Option<bitfunnel::SearchResult> = None;
 
     let mut last_query = String::new();
-    
+
     loop {
         // Update search results only if query changed
         if app.query != last_query {
@@ -285,10 +291,10 @@ fn render_main(f: &mut Frame, app: &mut App) {
     // Create layout: header, search bar, results, footer
     let chunks = Layout::default()
         .constraints([
-            Constraint::Length(3),  // Header
-            Constraint::Length(3),  // Search bar
-            Constraint::Min(0),     // Results
-            Constraint::Length(3),  // Footer
+            Constraint::Length(3), // Header
+            Constraint::Length(3), // Search bar
+            Constraint::Min(0),    // Results
+            Constraint::Length(3), // Footer
         ])
         .split(size);
 
@@ -297,7 +303,12 @@ fn render_main(f: &mut Frame, app: &mut App) {
         .borders(Borders::ALL)
         .style(Style::default().fg(Color::Cyan));
     let header_text = Line::from(vec![
-        Span::styled(" BitFunnel ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " BitFunnel ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw("Search CLI"),
     ]);
     f.render_widget(Paragraph::new(header_text).block(header_block), chunks[0]);
@@ -342,10 +353,10 @@ fn render_main(f: &mut Frame, app: &mut App) {
                 // display_idx is relative to scroll, but we need absolute index for comparison
                 let absolute_idx = app.scroll + display_idx;
                 let is_selected = absolute_idx == app.selected;
-                
+
                 let path_str = result.document.path.display().to_string();
                 let preview = get_preview(&result.document.content, &app.query, 50);
-                
+
                 let style = if is_selected {
                     Style::default().fg(Color::Black).bg(Color::Cyan)
                 } else {
@@ -378,16 +389,16 @@ fn render_main(f: &mut Frame, app: &mut App) {
         let results_block = Block::default()
             .borders(Borders::ALL)
             .title(format!(" Results ({}) ", app.results.len()));
-        
+
         let list = List::new(items)
             .block(results_block)
             .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan));
-        
+
         // Ensure selected index is valid
         if app.selected >= app.results.len() {
             app.selected = 0;
         }
-        
+
         // Update list state to reflect the selected item relative to scroll
         let relative_selection = app.selected.saturating_sub(app.scroll);
         // Make sure relative_selection is within bounds of visible items
@@ -415,15 +426,24 @@ fn render_main(f: &mut Frame, app: &mut App) {
 
 fn render_file_details(f: &mut Frame, result: &Option<bitfunnel::SearchResult>) {
     let size = f.size();
-    
+
     if let Some(result) = result {
         let chunks = Layout::default()
-            .constraints([Constraint::Length(3), Constraint::Min(0), Constraint::Length(3)])
+            .constraints([
+                Constraint::Length(3),
+                Constraint::Min(0),
+                Constraint::Length(3),
+            ])
             .split(size);
 
         // Header
         let header_text = Line::from(vec![
-            Span::styled(" File: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                " File: ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw(result.document.path.display().to_string()),
             Span::styled(
                 format!(" | Score: {:.1}%", result.score),
@@ -436,9 +456,7 @@ fn render_file_details(f: &mut Frame, result: &Option<bitfunnel::SearchResult>) 
         f.render_widget(Paragraph::new(header_text).block(header_block), chunks[0]);
 
         // Content
-        let content_block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Content ");
+        let content_block = Block::default().borders(Borders::ALL).title(" Content ");
         let content = Paragraph::new(result.document.content.as_str())
             .block(content_block)
             .wrap(Wrap { trim: true })
@@ -460,13 +478,13 @@ fn render_file_details(f: &mut Frame, result: &Option<bitfunnel::SearchResult>) 
 fn get_preview(content: &str, query: &str, max_len: usize) -> String {
     let content_lower = content.to_lowercase();
     let query_lower = query.to_lowercase();
-    
+
     // Try to find a snippet containing the query
     if let Some(pos) = content_lower.find(&query_lower) {
         let start = pos.saturating_sub(20);
         let end = (pos + query.len() + 40).min(content.len());
         let snippet = &content[start..end];
-        
+
         if snippet.len() > max_len {
             format!("...{}...", &snippet[..max_len])
         } else {

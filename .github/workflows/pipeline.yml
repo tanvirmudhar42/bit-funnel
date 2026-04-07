@@ -1,0 +1,231 @@
+name: Pipeline
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ci:
+    name: CI
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore(release):'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Check
+        run: cargo check --all-targets --all-features
+      - name: Test
+        run: cargo test --all-targets --all-features
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  bump:
+    name: Bump Version
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !startsWith(github.event.head_commit.message, 'chore(release):')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      bumped: ${{ steps.check_bump.outputs.bumped }}
+      new_tag: ${{ steps.check_bump.outputs.new_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install tools
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-edit,git-cliff
+      - name: Determine next version
+        id: check_bump
+        run: |
+          # Get current version (using --no-deps to be safe)
+          current_version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="bitfunnel") | .version')
+
+          # Get last tag
+          last_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          if [ -z "$last_tag" ]; then
+            commits=$(git log --format=%B)
+          else
+            commits=$(git log $last_tag..HEAD --format=%B)
+          fi
+
+          # Conventional Commits check
+          is_breaking=$(echo "$commits" | grep -E "BREAKING CHANGE|^[a-z]+(\(.*\))?!:" || true)
+          is_feat=$(echo "$commits" | grep -E "^feat(\(.*\))?:" || true)
+          is_fix=$(echo "$commits" | grep -E "^fix(\(.*\))?:" || true)
+          is_perf=$(echo "$commits" | grep -E "^perf(\(.*\))?:" || true)
+
+          if [ -n "$is_breaking" ]; then
+            bump_type="major"
+          elif [ -n "$is_feat" ]; then
+            bump_type="minor"
+          elif [ -n "$is_fix" ] || [ -n "$is_perf" ]; then
+            bump_type="patch"
+          else
+            echo "No bump needed"
+            echo "bumped=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          cargo set-version --bump $bump_type
+          cargo check # Update Cargo.lock
+
+          new_version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="bitfunnel") | .version')
+          new_tag="v$new_version"
+
+          echo "bumped=true" >> $GITHUB_OUTPUT
+          echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
+
+          # Update changelog
+          git cliff --tag "$new_tag" > CHANGELOG.md
+
+          # Commit and push
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add Cargo.toml Cargo.lock CHANGELOG.md
+          git commit -m "chore(release): prepare for $new_tag"
+          git tag -a "$new_tag" -m "Release $new_tag"
+          git push origin main --follow-tags
+
+  release:
+    name: Release
+    needs: [ci, bump]
+    # Run if a tag was pushed OR if the bump job successfully bumped the version
+    if: always() && (startsWith(github.ref, 'refs/tags/v') || needs.bump.outputs.bumped == 'true')
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            suffix: linux-x86_64.tar.gz
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            suffix: macos-x86_64.tar.gz
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            suffix: macos-aarch64.tar.gz
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            suffix: windows-x86_64.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch tags
+        run: git fetch --tags --force
+
+      - name: Checkout specific tag
+        if: needs.bump.outputs.bumped == 'true'
+        shell: bash
+        run: git checkout ${{ needs.bump.outputs.new_tag }}
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        run: |
+          # Get project name and binaries
+          PKG_NAME=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="bitfunnel") | .name')
+          # Get all binaries
+          BINS=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="bitfunnel") | .targets[] | select(.kind[] | contains("bin")) | .name')
+
+          mkdir dist
+          for bin in $BINS; do
+            if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+              cp "target/${{ matrix.target }}/release/$bin.exe" dist/ 2>/dev/null || true
+            else
+              cp "target/${{ matrix.target }}/release/$bin" dist/ 2>/dev/null || true
+            fi
+          done
+
+          ARCHIVE_NAME="$PKG_NAME-${{ matrix.suffix }}"
+          cd dist
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            7z a "../$ARCHIVE_NAME" *
+          else
+            tar czvf "../$ARCHIVE_NAME" *
+          fi
+          cd ..
+          echo "ARCHIVE_PATH=$ARCHIVE_NAME" >> $GITHUB_ENV
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: ${{ env.ARCHIVE_PATH }}
+
+  publish:
+    name: Publish Release
+    needs: [release, bump]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch tags
+        run: git fetch --tags --force
+
+      - name: Determine Tag
+        run: |
+          if [ "${{ needs.bump.outputs.bumped }}" == "true" ]; then
+            echo "TAG=${{ needs.bump.outputs.new_tag }}" >> $GITHUB_ENV
+          else
+            echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+          fi
+
+      - name: Checkout specific tag
+        run: git checkout ${{ env.TAG }}
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare Release
+        run: |
+          mkdir release-dist
+          find artifacts -type f -exec cp {} release-dist/ \;
+
+      - name: Install git-cliff
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+
+      - name: Generate Changelog for Release
+        run: |
+          git cliff --latest --strip header > RELEASE_NOTES.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          body_path: RELEASE_NOTES.md
+          files: release-dist/*

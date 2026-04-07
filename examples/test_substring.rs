@@ -12,12 +12,12 @@ fn main() -> anyhow::Result<()> {
         "doc1.txt".into(),
         "Rust is a systems programming language.".to_string(),
     )?;
-    
+
     index.index_document(
         "doc2.txt".into(),
         "Python programming is simple and powerful.".to_string(),
     )?;
-    
+
     index.index_document(
         "doc3.txt".into(),
         "JavaScript is used for web development.".to_string(),
@@ -38,13 +38,17 @@ fn main() -> anyhow::Result<()> {
     for (query, description) in test_cases {
         println!("Query: '{}' - {}", query, description);
         let results = index.search(query);
-        
+
         if results.is_empty() {
             println!("  ❌ No results found");
         } else {
             println!("  ✅ Found {} result(s):", results.len());
             for result in &results {
-                println!("     - {} (score: {:.1}%)", result.document.path.display(), result.score);
+                println!(
+                    "     - {} (score: {:.1}%)",
+                    result.document.path.display(),
+                    result.score
+                );
             }
         }
         println!();
@@ -52,4 +56,3 @@ fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-
