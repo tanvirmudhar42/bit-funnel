@@ -1,6 +1,8 @@
 use bitvec::prelude::*;
+use rayon::prelude::*;
 use std::hash::Hasher;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use twox_hash::XxHash64;
 use anyhow::{Context, Result};
 
@@ -12,12 +14,13 @@ pub struct Document {
     pub id: usize,
     pub path: PathBuf,
     pub content: String,
+    pub words: Vec<String>,
 }
 
 /// BitFunnel index that uses bit-sliced signatures for efficient search
 pub struct BitFunnelIndex {
     /// Documents indexed by ID
-    documents: Vec<Document>,
+    documents: Vec<Arc<Document>>,
     /// Bit signatures for each document (Bloom filter representation)
     signatures: Vec<BitVec<u64, Lsb0>>,
     /// Signature size in bits
@@ -59,7 +62,7 @@ impl BitFunnelIndex {
         let mut signature = bitvec![u64, Lsb0; 0; self.signature_size];
         
         // Extract terms and set bits in signature
-        let terms = Self::extract_terms(&content);
+        let (words, terms) = Self::extract_terms_and_words(&content);
         for term in &terms {
             let bit_positions = self.get_term_bit_positions(term);
             for pos in bit_positions {
@@ -69,11 +72,12 @@ impl BitFunnelIndex {
             }
         }
         
-        self.documents.push(Document {
+        self.documents.push(Arc::new(Document {
             id: doc_id,
             path,
             content,
-        });
+            words,
+        }));
         self.signatures.push(signature);
         
         Ok(doc_id)
@@ -104,31 +108,37 @@ impl BitFunnelIndex {
             }
         }
 
-        // Find matching documents
-        let mut results = Vec::new();
-        for (doc_id, doc_signature) in self.signatures.iter().enumerate() {
-            // First check: document signature must contain all query bits (fast filter)
-            let mut matches_bits = true;
-            for i in 0..self.signature_size {
-                if query_signature[i] && !doc_signature[i] {
-                    matches_bits = false;
-                    break;
-                }
-            }
+        // Find matching documents in parallel
+        let query_raw = query_signature.as_raw_slice();
 
-            if matches_bits {
-                // Second check: all query words must be present AND in order
-                if self.matches_query_words_in_order(&self.documents[doc_id].content, &query_words) {
-                    // Calculate relevance score
-                    let score = self.calculate_relevance(&query_signature, doc_signature, &query_words, doc_id);
-                    results.push(SearchResult {
-                        document_id: doc_id,
-                        score,
-                        document: self.documents[doc_id].clone(),
-                    });
+        let mut results: Vec<SearchResult> = self.signatures.par_iter().enumerate()
+            .filter_map(|(doc_id, doc_signature)| {
+                // First check: document signature must contain all query bits (fast filter)
+                let doc_raw = doc_signature.as_raw_slice();
+                let mut matches_bits = true;
+                for (q, d) in query_raw.iter().zip(doc_raw.iter()) {
+                    if (q & d) != *q {
+                        matches_bits = false;
+                        break;
+                    }
                 }
-            }
-        }
+
+                if matches_bits {
+                    let doc = &self.documents[doc_id];
+                    // Second check: all query words must be present AND in order
+                    if self.matches_query_words_in_order(doc, &query_words) {
+                        // Calculate relevance score
+                        let score = self.calculate_relevance(&query_signature, doc_signature, &query_words, doc);
+                        return Some(SearchResult {
+                            document_id: doc_id,
+                            score,
+                            document: Arc::clone(doc),
+                        });
+                    }
+                }
+                None
+            })
+            .collect();
 
         // Sort by relevance score (higher is better)
         results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
@@ -146,12 +156,12 @@ impl BitFunnelIndex {
     }
 
     /// Check if all query words appear in the document in order
-    fn matches_query_words_in_order(&self, content: &str, query_words: &[String]) -> bool {
+    fn matches_query_words_in_order(&self, doc: &Document, query_words: &[String]) -> bool {
         if query_words.is_empty() {
             return true;
         }
 
-        let doc_words: Vec<String> = Self::extract_query_words(content);
+        let doc_words = &doc.words;
 
         // Find positions where each query word matches (as substring), ensuring order
         let mut last_pos = 0;
@@ -161,7 +171,7 @@ impl BitFunnelIndex {
             for (pos, doc_word) in doc_words.iter().enumerate().skip(last_pos) {
                 // Check if query word is a substring of doc word (for substring matching)
                 // or if they match exactly
-                if doc_word.contains(query_word) || query_word == doc_word {
+                if doc_word.contains(query_word) {
                     last_pos = pos + 1; // Next search starts after this position
                     found = true;
                     break;
@@ -180,26 +190,26 @@ impl BitFunnelIndex {
         &self,
         query_sig: &BitVec<u64, Lsb0>,
         doc_sig: &BitVec<u64, Lsb0>,
-        query_terms: &[String],
-        doc_id: usize,
+        query_words: &[String],
+        doc: &Document,
     ) -> f64 {
         // Count matching bits
         let mut matching_bits = 0;
         let mut query_bits = 0;
-        for i in 0..self.signature_size {
-            if query_sig[i] {
-                query_bits += 1;
-                if doc_sig[i] {
-                    matching_bits += 1;
-                }
-            }
+
+        let query_raw = query_sig.as_raw_slice();
+        let doc_raw = doc_sig.as_raw_slice();
+
+        for (q, d) in query_raw.iter().zip(doc_raw.iter()) {
+            query_bits += q.count_ones();
+            matching_bits += (q & d).count_ones();
         }
 
         // Also count exact term matches for better relevance
         let mut exact_matches = 0;
-        let doc_content_lower = self.documents[doc_id].content.to_lowercase();
-        for term in query_terms {
-            if doc_content_lower.contains(term) {
+        for word in query_words {
+            // Check if any word in the document contains the query word
+            if doc.words.iter().any(|dw| dw.contains(word)) {
                 exact_matches += 1;
             }
         }
@@ -210,8 +220,8 @@ impl BitFunnelIndex {
         } else {
             0.0
         };
-        let term_score = if !query_terms.is_empty() {
-            exact_matches as f64 / query_terms.len() as f64
+        let term_score = if !query_words.is_empty() {
+            exact_matches as f64 / query_words.len() as f64
         } else {
             0.0
         };
@@ -235,10 +245,8 @@ impl BitFunnelIndex {
         positions
     }
 
-    /// Extract terms from text (simple tokenization)
-    /// Now includes both whole words and n-grams for substring matching
-    fn extract_terms(text: &str) -> Vec<String> {
-        let mut terms = Vec::new();
+    /// Extract terms and words from text
+    fn extract_terms_and_words(text: &str) -> (Vec<String>, Vec<String>) {
         let text_lower = text.to_lowercase();
         
         // Extract whole words
@@ -249,30 +257,36 @@ impl BitFunnelIndex {
             .map(|s| s.to_string())
             .collect();
         
+        let mut terms = Vec::with_capacity(words.len() * 5);
+
         // Add whole words
         terms.extend(words.clone());
         
         // Generate n-grams (substrings) from words for substring matching
-        // Minimum n-gram length: 3 characters to avoid too many false positives
-        // Maximum n-gram length: 8 characters (reasonable limit for search)
-        // This allows searching "prog" to match "programming" while keeping memory reasonable
         const MIN_NGRAM_LEN: usize = 3;
         const MAX_NGRAM_LEN: usize = 8;
         
         for word in &words {
-            if word.len() >= MIN_NGRAM_LEN {
-                let max_len = word.len().min(MAX_NGRAM_LEN);
-                // Generate all n-grams of length MIN_NGRAM_LEN to max_len
-                for ngram_len in MIN_NGRAM_LEN..=max_len {
-                    for start in 0..=(word.len().saturating_sub(ngram_len)) {
-                        let ngram = &word[start..start + ngram_len];
-                        terms.push(ngram.to_string());
+            let chars: Vec<char> = word.chars().collect();
+            let len = chars.len();
+            if len >= MIN_NGRAM_LEN {
+                let max_ngram = len.min(MAX_NGRAM_LEN);
+                for ngram_len in MIN_NGRAM_LEN..=max_ngram {
+                    for start in 0..=(len - ngram_len) {
+                        let ngram: String = chars[start..start + ngram_len].iter().collect();
+                        terms.push(ngram);
                     }
                 }
             }
         }
         
-        terms
+        (words, terms)
+    }
+
+    /// Extract terms from text (simple tokenization)
+    /// Now includes both whole words and n-grams for substring matching
+    fn extract_terms(text: &str) -> Vec<String> {
+        Self::extract_terms_and_words(text).1
     }
 
     /// Get number of indexed documents
@@ -282,7 +296,7 @@ impl BitFunnelIndex {
 
     /// Get a document by ID
     pub fn get_document(&self, id: usize) -> Option<&Document> {
-        self.documents.get(id)
+        self.documents.get(id).map(|d| d.as_ref())
     }
 }
 
@@ -291,6 +305,6 @@ impl BitFunnelIndex {
 pub struct SearchResult {
     pub document_id: usize,
     pub score: f64,
-    pub document: Document,
+    pub document: Arc<Document>,
 }
 

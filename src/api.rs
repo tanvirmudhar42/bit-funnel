@@ -100,8 +100,13 @@ async fn search(
     State(state): State<AppState>,
     Json(request): Json<SearchRequest>,
 ) -> Result<Json<SearchResponse>, StatusCode> {
-    let index = state.read().await;
-    let results = index.search(&request.query);
+    let index_lock = Arc::clone(&state);
+
+    // Run search in a blocking task to avoid blocking the async executor
+    let results = tokio::task::spawn_blocking(move || {
+        let index = index_lock.blocking_read();
+        index.search(&request.query)
+    }).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     
     let result_dtos: Vec<SearchResultDto> = results.iter().map(SearchResultDto::from).collect();
     
