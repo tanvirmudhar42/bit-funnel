@@ -23,11 +23,19 @@ path = "src/cli.rs"
 name = "generate-fixtures"
 path = "src/generate_fixtures.rs"
 
+[features]
+default = ["rayon"]
+rayon = ["dep:rayon"]
+tokio-parallel = ["tokio/rt-multi-thread", "dep:num_cpus"]
+
 [dependencies]
 bitvec = "1.0"
+rayon = { version = "1.10", optional = true }
+num_cpus = { version = "1.0", optional = true }
 twox-hash = "1.6"
 axum = "0.7"
 tokio = { version = "1", features = ["full"] }
+futures = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tower = "0.4"
