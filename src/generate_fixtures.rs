@@ -228,7 +228,7 @@ fn generate_text(rng: &mut SimpleRng, target_words: usize) -> String {
         let para_length = 50 + (rng.next() as usize % 100);
 
         // Add some topic-specific words
-        if rng.next() % 3 == 0 {
+        if rng.next().is_multiple_of(3) {
             text.push_str(&capitalize(
                 topic_words[rng.next() as usize % topic_words.len()],
             ));
@@ -248,7 +248,7 @@ fn generate_text(rng: &mut SimpleRng, target_words: usize) -> String {
             word_count += 1;
 
             // Add punctuation occasionally
-            if rng.next() % 15 == 0 && word_count < target_words {
+            if rng.next().is_multiple_of(15) && word_count < target_words {
                 match rng.next() % 3 {
                     0 => text.push_str(". "),
                     1 => text.push_str(", "),
