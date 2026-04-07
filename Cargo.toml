@@ -23,6 +23,10 @@ path = "examples/index_postgres.rs"
 name = "index_s3"
 path = "examples/index_s3.rs"
 
+[[example]]
+name = "persistence"
+path = "examples/persistence.rs"
+
 [[bin]]
 name = "bitfunnel-cli"
 path = "src/cli.rs"
@@ -39,7 +43,7 @@ postgres = ["dep:sqlx"]
 s3 = ["dep:aws-config", "dep:aws-sdk-s3"]
 
 [dependencies]
-bitvec = "1.0"
+bitvec = { version = "1.0", features = ["serde"] }
 rayon = { version = "1.10", optional = true }
 num_cpus = { version = "1.0", optional = true }
 twox-hash = "1.6"

@@ -37,6 +37,8 @@ pub fn create_router(state: AppState) -> Router {
     }
 
     router
+        .route("/api/index/save", post(save_index_to_file))
+        .route("/api/index/load", post(load_index_from_file))
         .route("/api/stats", get(get_stats))
         .route("/api/health", get(health_check))
         .route("/ws/search", get(ws_handler))
@@ -129,6 +131,47 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
             }
         } else {
             break;
+        }
+    }
+}
+
+/// Save the index to a file
+async fn save_index_to_file(
+    State(state): State<AppState>,
+    Json(request): Json<PersistenceRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let index = state.read().await;
+
+    match index.save_to_file(&request.path) {
+        Ok(_) => Ok(Json(serde_json::json!({
+            "success": true,
+            "path": request.path
+        }))),
+        Err(e) => {
+            eprintln!("Error saving index: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
+}
+
+/// Load the index from a file
+async fn load_index_from_file(
+    State(state): State<AppState>,
+    Json(request): Json<PersistenceRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    match BitFunnelIndex::load_from_file(&request.path) {
+        Ok(new_index) => {
+            let mut index = state.write().await;
+            *index = new_index;
+            Ok(Json(serde_json::json!({
+                "success": true,
+                "document_count": index.document_count(),
+                "path": request.path
+            })))
+        }
+        Err(e) => {
+            eprintln!("Error loading index: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
 }

@@ -35,6 +35,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
         scope
             .service(get_stats)
             .service(health_check)
+            .service(save_index_to_file)
+            .service(load_index_from_file)
     )
     .service(web::resource("/ws/search").route(web::get().to(ws_handler)));
 }
@@ -153,6 +155,49 @@ async fn index_file(
         })),
         Err(e) => {
             eprintln!("Error indexing file: {}", e);
+            HttpResponse::InternalServerError().finish()
+        }
+    }
+}
+
+/// Save the index to a file
+#[post("/index/save")]
+async fn save_index_to_file(
+    state: web::Data<AppState>,
+    request: web::Json<PersistenceRequest>,
+) -> impl Responder {
+    let index = state.read().await;
+
+    match index.save_to_file(&request.path) {
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({
+            "success": true,
+            "path": request.path
+        })),
+        Err(e) => {
+            eprintln!("Error saving index: {}", e);
+            HttpResponse::InternalServerError().finish()
+        }
+    }
+}
+
+/// Load the index from a file
+#[post("/index/load")]
+async fn load_index_from_file(
+    state: web::Data<AppState>,
+    request: web::Json<PersistenceRequest>,
+) -> impl Responder {
+    match BitFunnelIndex::load_from_file(&request.path) {
+        Ok(new_index) => {
+            let mut index = state.write().await;
+            *index = new_index;
+            HttpResponse::Ok().json(serde_json::json!({
+                "success": true,
+                "document_count": index.document_count(),
+                "path": request.path
+            }))
+        }
+        Err(e) => {
+            eprintln!("Error loading index: {}", e);
             HttpResponse::InternalServerError().finish()
         }
     }

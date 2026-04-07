@@ -31,6 +31,12 @@ pub struct IndexS3Request {
     pub prefix: Option<String>,
 }
 
+/// Request to save or load index
+#[derive(Deserialize)]
+pub struct PersistenceRequest {
+    pub path: String,
+}
+
 /// Search request
 #[derive(Deserialize, Serialize)]
 pub struct SearchRequest {
