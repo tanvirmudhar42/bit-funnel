@@ -2,24 +2,27 @@ use anyhow::{Context, Result};
 use bitvec::prelude::*;
 #[cfg(all(feature = "rayon", not(feature = "tokio-parallel")))]
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::hash::Hasher;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use twox_hash::XxHash64;
 
 pub mod api;
+pub mod datasource;
 pub mod integrations;
 
 /// Represents a document in the index
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Document {
     pub id: usize,
-    pub path: PathBuf,
+    pub path: String,
     pub content: String,
     pub words: Vec<String>,
 }
 
 /// BitFunnel index that uses bit-sliced signatures for efficient search
+#[derive(Serialize, Deserialize)]
 pub struct BitFunnelIndex {
     /// Documents indexed by ID
     documents: Vec<Arc<Document>>,
@@ -53,11 +56,11 @@ impl BitFunnelIndex {
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read file: {}", path.display()))?;
 
-        self.index_document(path.to_path_buf(), content)
+        self.index_document(path.to_string_lossy().to_string(), content)
     }
 
     /// Index a document with given path and content
-    pub fn index_document(&mut self, path: PathBuf, content: String) -> Result<usize> {
+    pub fn index_document(&mut self, path: String, content: String) -> Result<usize> {
         let doc_id = self.documents.len();
 
         // Create signature for this document
@@ -407,6 +410,25 @@ impl BitFunnelIndex {
     /// Get a document by ID
     pub fn get_document(&self, id: usize) -> Option<&Document> {
         self.documents.get(id).map(|d| d.as_ref())
+    }
+
+    /// Save the index to a file
+    pub fn save_to_file(&self, path: impl AsRef<Path>) -> Result<()> {
+        let path = path.as_ref();
+        let file = std::fs::File::create(path)
+            .with_context(|| format!("Failed to create index file: {}", path.display()))?;
+        serde_json::to_writer(file, self).with_context(|| "Failed to serialize index")?;
+        Ok(())
+    }
+
+    /// Load the index from a file
+    pub fn load_from_file(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+        let file = std::fs::File::open(path)
+            .with_context(|| format!("Failed to open index file: {}", path.display()))?;
+        let index: Self =
+            serde_json::from_reader(file).with_context(|| "Failed to deserialize index")?;
+        Ok(index)
     }
 }
 

@@ -97,7 +97,6 @@
 
         let socket;
         let reconnectInterval = 1000;
-        let searchStartTime = null;
 
         function connect() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -135,7 +134,6 @@
 
         function sendSearch(query) {
             if (socket && socket.readyState === WebSocket.OPEN) {
-                searchStartTime = performance.now();
                 socket.send(JSON.stringify({ query }));
             }
         }
@@ -148,8 +146,7 @@
 
         function displayResults(data) {
             resultsList.innerHTML = '';
-            const elapsed = searchStartTime ? (performance.now() - searchStartTime).toFixed(1) : '?';
-            resultsInfo.innerText = `Found ${data.count} result(s) in ${elapsed}ms`;
+            resultsInfo.innerText = `Found ${data.count} result(s)`;
 
             data.results.forEach(result => {
                 const item = document.createElement('div');
