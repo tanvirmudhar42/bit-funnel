@@ -188,9 +188,11 @@ jobs:
   publish:
     name: Publish Release
     needs: [release, bump]
-    # Same guard as release: allow the job to run when bump was skipped
-    # (tag-push path) while still blocking on upstream failures.
-    if: "!failure() && !cancelled()"
+    # Same gate as release: only run when there is an actual tag to publish
+    # (tag-push path or successful bump), while blocking on upstream failures.
+    if: >-
+      !failure() && !cancelled() &&
+      (startsWith(github.ref, 'refs/tags/v') || needs.bump.outputs.bumped == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: write
