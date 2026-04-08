@@ -55,7 +55,7 @@ fn main() -> anyhow::Result<()> {
                 println!(
                     "{}. {} (score: {:.2})",
                     i + 1,
-                    result.document.path.display(),
+                    result.document.path,
                     result.score
                 );
                 // Show preview

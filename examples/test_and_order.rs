@@ -65,17 +65,7 @@ fn main() -> anyhow::Result<()> {
         println!("Query: '{}' - {}", query, description);
         let results = index.search(query);
 
-        let result_files: Vec<String> = results
-            .iter()
-            .map(|r| {
-                r.document
-                    .path
-                    .file_name()
-                    .unwrap()
-                    .to_string_lossy()
-                    .to_string()
-            })
-            .collect();
+        let result_files: Vec<String> = results.iter().map(|r| r.document.path.clone()).collect();
 
         if result_files.is_empty() && expected_files.is_empty() {
             println!("  ✅ Correctly found no results");

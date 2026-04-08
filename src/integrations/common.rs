@@ -14,6 +14,29 @@ pub struct IndexDocumentRequest {
     pub content: String,
 }
 
+/// Request to index a Postgres table
+#[derive(Deserialize)]
+pub struct IndexPostgresRequest {
+    pub connection_string: String,
+    pub table: String,
+    pub id_column: String,
+    pub text_columns: Vec<String>,
+}
+
+/// Request to index an S3 bucket
+#[derive(Deserialize)]
+pub struct IndexS3Request {
+    pub bucket: String,
+    pub region: Option<String>,
+    pub prefix: Option<String>,
+}
+
+/// Request to save or load index
+#[derive(Deserialize)]
+pub struct PersistenceRequest {
+    pub path: String,
+}
+
 /// Search request
 #[derive(Deserialize, Serialize)]
 pub struct SearchRequest {
@@ -48,7 +71,7 @@ impl From<&SearchResult> for SearchResultDto {
         Self {
             document_id: result.document_id,
             score: result.score,
-            path: result.document.path.to_string_lossy().to_string(),
+            path: result.document.path.clone(),
             preview,
         }
     }

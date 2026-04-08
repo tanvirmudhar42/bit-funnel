@@ -46,8 +46,7 @@ fn main() -> anyhow::Result<()> {
             for result in &results {
                 println!(
                     "     - {} (score: {:.1}%)",
-                    result.document.path.display(),
-                    result.score
+                    result.document.path, result.score
                 );
             }
         }
