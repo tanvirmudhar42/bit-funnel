@@ -455,3 +455,17 @@ pub struct SearchResult {
     pub score: f64,
     pub document: Arc<Document>,
 }
+
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "tokio-parallel")]
+    use super::BitFunnelIndex;
+
+    #[test]
+    #[cfg(feature = "tokio-parallel")]
+    fn search_on_empty_index_is_safe_with_tokio_parallel() {
+        let index = BitFunnelIndex::with_defaults();
+        let results = index.search("anything");
+        assert!(results.is_empty());
+    }
+}
