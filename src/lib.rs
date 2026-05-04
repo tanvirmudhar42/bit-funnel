@@ -150,10 +150,13 @@ impl BitFunnelIndex {
         query_words: &[String],
     ) -> Vec<SearchResult> {
         use std::sync::Mutex;
+        if self.signatures.is_empty() {
+            return Vec::new();
+        }
         let results = Arc::new(Mutex::new(Vec::new()));
 
         let n_threads = num_cpus::get().max(1);
-        let chunk_size = self.signatures.len().div_ceil(n_threads);
+        let chunk_size = self.signatures.len().div_ceil(n_threads).max(1);
 
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(n_threads)
@@ -341,6 +344,10 @@ impl BitFunnelIndex {
 
     /// Get bit positions for a term using multiple hash functions
     fn get_term_bit_positions(&self, term: &str) -> Vec<usize> {
+        if self.signature_size == 0 {
+            return Vec::new();
+        }
+
         let mut positions = Vec::new();
 
         // Generate multiple hash values for this term using different seeds
@@ -407,6 +414,30 @@ impl BitFunnelIndex {
     /// Get a document by ID
     pub fn get_document(&self, id: usize) -> Option<&Document> {
         self.documents.get(id).map(|d| d.as_ref())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BitFunnelIndex;
+    use std::path::PathBuf;
+
+    #[test]
+    fn search_with_zero_signature_size_does_not_panic() {
+        let mut index = BitFunnelIndex::new(0, 3);
+        index
+            .index_document(PathBuf::from("doc.txt"), "hello world".to_string())
+            .expect("indexing should succeed");
+        let results = index.search("hello");
+        assert_eq!(results.len(), 1);
+    }
+
+    #[cfg(feature = "tokio-parallel")]
+    #[test]
+    fn tokio_parallel_search_on_empty_index_returns_empty_results() {
+        let index = BitFunnelIndex::with_defaults();
+        let results = index.search("query");
+        assert!(results.is_empty());
     }
 }
 
