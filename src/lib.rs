@@ -34,6 +34,11 @@ pub struct BitFunnelIndex {
 impl BitFunnelIndex {
     /// Create a new BitFunnel index with specified signature size
     pub fn new(signature_size: usize, hash_count: usize) -> Self {
+        // Prevent configuration values that would otherwise panic at runtime
+        // (e.g. modulo by zero when hashing terms).
+        let signature_size = signature_size.max(1);
+        let hash_count = hash_count.max(1);
+
         Self {
             documents: Vec::new(),
             signatures: Vec::new(),
@@ -150,10 +155,15 @@ impl BitFunnelIndex {
         query_words: &[String],
     ) -> Vec<SearchResult> {
         use std::sync::Mutex;
+
+        if self.signatures.is_empty() {
+            return Vec::new();
+        }
+
         let results = Arc::new(Mutex::new(Vec::new()));
 
         let n_threads = num_cpus::get().max(1);
-        let chunk_size = self.signatures.len().div_ceil(n_threads);
+        let chunk_size = self.signatures.len().div_ceil(n_threads).max(1);
 
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(n_threads)
