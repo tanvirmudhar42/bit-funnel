@@ -150,10 +150,15 @@ impl BitFunnelIndex {
         query_words: &[String],
     ) -> Vec<SearchResult> {
         use std::sync::Mutex;
+
+        if self.signatures.is_empty() {
+            return Vec::new();
+        }
+
         let results = Arc::new(Mutex::new(Vec::new()));
 
         let n_threads = num_cpus::get().max(1);
-        let chunk_size = self.signatures.len().div_ceil(n_threads);
+        let chunk_size = self.signatures.len().div_ceil(n_threads).max(1);
 
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(n_threads)
@@ -416,4 +421,18 @@ pub struct SearchResult {
     pub document_id: usize,
     pub score: f64,
     pub document: Arc<Document>,
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "tokio-parallel")]
+    use super::BitFunnelIndex;
+
+    #[test]
+    #[cfg(feature = "tokio-parallel")]
+    fn search_on_empty_index_is_safe_with_tokio_parallel() {
+        let index = BitFunnelIndex::with_defaults();
+        let results = index.search("anything");
+        assert!(results.is_empty());
+    }
 }
