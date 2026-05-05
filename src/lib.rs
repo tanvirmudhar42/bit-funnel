@@ -446,20 +446,6 @@ mod tests {
         let results = index.search("query");
         assert!(results.is_empty());
     }
-}
-
-/// Search result containing document and relevance score
-#[derive(Debug, Clone)]
-pub struct SearchResult {
-    pub document_id: usize,
-    pub score: f64,
-    pub document: Arc<Document>,
-}
-
-#[cfg(test)]
-mod tests {
-    #[cfg(feature = "tokio-parallel")]
-    use super::BitFunnelIndex;
 
     #[test]
     #[cfg(feature = "tokio-parallel")]
@@ -468,4 +454,12 @@ mod tests {
         let results = index.search("anything");
         assert!(results.is_empty());
     }
+}
+
+/// Search result containing document and relevance score
+#[derive(Debug, Clone)]
+pub struct SearchResult {
+    pub document_id: usize,
+    pub score: f64,
+    pub document: Arc<Document>,
 }
