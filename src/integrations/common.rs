@@ -42,7 +42,12 @@ impl From<&SearchResult> for SearchResultDto {
         const PREVIEW_CHARS: usize = 200;
         let char_count = result.document.content.chars().count();
         let preview = if char_count > PREVIEW_CHARS {
-            let truncated: String = result.document.content.chars().take(PREVIEW_CHARS).collect();
+            let truncated: String = result
+                .document
+                .content
+                .chars()
+                .take(PREVIEW_CHARS)
+                .collect();
             format!("{truncated}...")
         } else {
             result.document.content.clone()
