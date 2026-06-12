@@ -48,4 +48,5 @@ thiserror = "2.0"
 crossterm = "0.29"
 clap = { version = "4.6", features = ["derive"] }
 ratatui = "0.30"
+time = "=0.3.47"
 
