@@ -29,7 +29,7 @@ rayon = ["dep:rayon"]
 tokio-parallel = ["tokio/rt-multi-thread", "dep:num_cpus"]
 
 [dependencies]
-bitvec = "1.0"
+bitvec = "1.1"
 rayon = { version = "1.12", optional = true }
 num_cpus = { version = "1.17", optional = true }
 twox-hash = "2.1"
