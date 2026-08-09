@@ -88,25 +88,32 @@ jobs:
           new_version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="bitfunnel") | .version')
           new_tag="v$new_version"
 
-          echo "bumped=true" >> $GITHUB_OUTPUT
-          echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
-
           # Update changelog
           git cliff --tag "$new_tag" > CHANGELOG.md
 
           # Commit and push
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add Cargo.toml Cargo.lock CHANGELOG.md
+          git add Cargo.toml CHANGELOG.md
+          git add -f Cargo.lock
           git commit -m "chore(release): prepare for $new_tag"
           git tag -a "$new_tag" -m "Release $new_tag"
           git push origin main --follow-tags
 
+          # Only set outputs after the push succeeds so downstream jobs
+          # never try to check out a tag that doesn't exist on the remote.
+          echo "bumped=true" >> $GITHUB_OUTPUT
+          echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
+
   release:
     name: Release
     needs: [ci, bump]
-    # Run if a tag was pushed OR if the bump job successfully bumped the version
-    if: always() && (startsWith(github.ref, 'refs/tags/v') || needs.bump.outputs.bumped == 'true')
+    # Run on tag pushes (where ci/bump are skipped) OR after a successful bump.
+    # `!failure() && !cancelled()` replaces `always()` so that a bump failure
+    # no longer triggers release jobs that would fail on a missing tag.
+    if: >-
+      !failure() && !cancelled() &&
+      (startsWith(github.ref, 'refs/tags/v') || needs.bump.outputs.bumped == 'true')
     strategy:
       matrix:
         include:
@@ -181,6 +188,11 @@ jobs:
   publish:
     name: Publish Release
     needs: [release, bump]
+    # Same gate as release: only run when there is an actual tag to publish
+    # (tag-push path or successful bump), while blocking on upstream failures.
+    if: >-
+      !failure() && !cancelled() &&
+      (startsWith(github.ref, 'refs/tags/v') || needs.bump.outputs.bumped == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: write
